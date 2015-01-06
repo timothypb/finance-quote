@@ -2,6 +2,12 @@
 #
 # ZA.pm
 #
+## 2015.01.01
+# Added check for system month=Jan and Web month=Dec. Sharenet gives only the
+# date as day/month so we are using the system year for the year of trade.
+# Make year match web month when at start of new year. Added extra symbols.
+# Timothy Boyle
+
 # 2013.05.01
 # Changes to table references to correct for new sharenet web page layout
 # Timothy Boyle
@@ -28,7 +34,7 @@ use LWP::UserAgent;
 use HTTP::Request::Common;
 use HTML::TableExtract;
 
-# VERSION
+our $VERSION = '1.35'; # VERSION
 
 my $SHARENET_MAINURL = ("http://www.sharenet.co.za/");
 my $SHARENET_URL     = ( $SHARENET_MAINURL . "jse/" );
@@ -39,7 +45,7 @@ sub methods {
 
 sub labels {
     my @labels =
-        qw/method source name symbol currency last date isodate high low p_change/;
+        qw/method source name symbol currency last date isodate eurodate high low p_change/;
     return ( sharenet => \@labels );
 }
 
@@ -82,20 +88,20 @@ sub sharenet {
         }
 
         # Debug to dump all tables in HTML...
-
-        #   print "\n \n \n \n[debug]: ++++ ==== ++++ ==== ++++ ==== ++++ ==== START OF TABLE DUMP ++++ ==== ++++ ==== ++++ ==== ++++ ==== \n \n \n \n";
-        #
-        # foreach $ts ($te->table_states) {;
-        #
-        #   printf "\n \n \n \n[debug]: //// \\\\ //// \\\\ //// \\\\ //// \\\\ START OF TABLE %d,%d //// \\\\ //// \\\\ //// \\\\ //// \\\\ \n \n \n \n",
-        #    $ts->depth, $ts->count;
-        #
-        #  foreach $row ($ts->rows) {
-        #    print "[debug]: ", $row->[0], " | ", $row->[1], " | ", $row->[2], " | ", $row->[3], "\n";
-        #   }
-        # }
-        #
-        #   print "\n \n \n \n[debug]: ++++ ==== ++++ ==== ++++ ==== ++++ ==== END OF TABLE DUMP ++++ ==== ++++ ==== ++++ ==== ++++ ==== \n \n \n \n";
+#
+#           print "\n \n \n \n[debug]: ++++ ==== ++++ ==== ++++ ==== ++++ ==== START OF TABLE DUMP ++++ ==== ++++ ==== ++++ ==== ++++ ==== \n \n \n \n";
+        
+#        foreach $ts ($te->table_states) {;
+        
+#          printf "\n \n \n \n[debug]: //// \\\\ //// \\\\ //// \\\\ //// \\\\ START OF TABLE %d,%d //// \\\\ //// \\\\ //// \\\\ //// \\\\ \n \n \n \n",
+#           $ts->depth, $ts->count;
+        
+#         foreach $row ($ts->rows) {
+#           print "[debug]: ", $row->[0], " | ", $row->[1], " | ", $row->[2], " | ", $row->[3], "\n";
+#          }
+#         }
+        
+#          print "\n \n \n \n[debug]: ++++ ==== ++++ ==== ++++ ==== ++++ ==== END OF TABLE DUMP ++++ ==== ++++ ==== ++++ ==== ++++ ==== \n \n \n \n";
 
         # GENERAL FIELDS
         $info{ $symbol, "success" } = 1;
@@ -124,26 +130,33 @@ sub sharenet {
 
             # date for last trade sale, high, low
             # sharenet only gives the day and month. We could use today's date, but this would not
-            # be correct over weekends and public holidays (if it matters)
-            my $date =
+            # be correct over weekends and public holidays (if it matters). So use the day/month from
+            # sharenet and the year from the system time vector.
+            my $eurodate =
                 substr( $rows[0][0], 16, 5 )
-                . "/";    #extract the day/month from the string and add /
+                . "/";    #extract the day/month from the string and add '/'
 
             # this does the same as above in a more robust fashion
             #     my $date  = $rows[0][0]; # day/month plus time plus text
             #     $date =~ s/[^0-9\/]//g; # remove most unwanted characters
             #     $date =~ s/\d{4}$/\//; # remove last 4 digits = time and add / for the year
 
-            my $year =
-                ( localtime() )[5]
-                + 1900;    # extract year from system time vector
-            $date = $date . $year;    # add it to the day/month
+#           Check for start of year when system and web years might be different
+            my $webmon = substr $eurodate, 3, 2; # extract the web month
+            my ($sysmon,$year) = (localtime())[4,5]; # get the system month and year
+            $year = $year + 1900; # 4 digit year
+            # if system=Jan and web=Dec, subtract 1 from system year to match web month
+            if ($sysmon == 0 and $webmon == 12) {$year = $year-1};
 
-            # print $date, "\n"; # we now have the date of the trades as dd/mm/yyyy
-            $quoter->store_date( \%info, $symbol, { eurodate => $date } )
-                ;                     # gives eurodate and isodate symbols
+            $eurodate = $eurodate . $year;    # append it to the day/month/
+            # print $eurodate, "\n"; # we now have the date of the trades as dd/mm/yyyy=eurodate
+#           usdate       date in mm/dd/yy or mm/dd/yyyy
+#           eurodate     date in dd/mm/yy or dd/mm/yyyy
+#           isodate      date in yy-mm-dd or yyyy-mm-dd
+            $info{ $symbol, "eurodate" } = $eurodate;
 
-            # $quoter->store_date(\%info, $symbol, {today => 1}); # could use today's date
+            $quoter->store_date( \%info, $symbol, { eurodate => $eurodate } ); # gives usdate=date and isodate symbols
+
             # last traded price
             $info{ $symbol, "last" } = $rows[2][1];
             $info{ $symbol, "last" } =~ tr/ //d;
@@ -198,7 +211,7 @@ www.sharenet.co.za.
 
 Information available from sharenet may include the following labels:
 
-method source name symbol currency date nav last price
+method source name symbol currency date isodate eurodate nav last price high low p_change net
 
 =head1 SEE ALSO
 
